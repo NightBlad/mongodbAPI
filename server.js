@@ -42,13 +42,22 @@ connectToMongo().then(() => {
         filter[field] = { $regex: val, $options: 'i' };
       };
 
+      // helper: exact match but case-insensitive using regex anchor
+      const exactCi = (field, val) => {
+        const parts = val.split('|').map(s => s.trim()).filter(Boolean);
+        if (parts.length === 1) {
+          // ^...$ with i
+          filter[field] = { $regex: `^${escapeRegExp(parts[0])}$`, $options: 'i' };
+        } else {
+          // array of regexes: use $in with regex objects
+          filter[field] = { $in: parts.map(p => new RegExp(`^${escapeRegExp(p)}$`, 'i')) };
+        }
+      };
+
       if (q.name) {
-        // exact name(s) separated by |  -> $in
-        const names = q.name.split('|').map(s => s.trim());
-        if (names.length === 1) filter.name = names[0];
-        else filter.name = { $in: names };
+        exactCi('name', q.name);
       }
-      if (q.fname) addFuzzy('name', q.fname);
+  if (q.fname) addFuzzy('name', q.fname);
       if (q.id) {
         // passcode numeric, can be comma separated
         const ids = q.id.split(',').map(s => parseInt(s.trim(), 10));
@@ -56,8 +65,9 @@ connectToMongo().then(() => {
       }
       if (q.konami_id) filter.konami_id = q.konami_id;
       if (q.type) {
-        const types = q.type.split(',').map(s => s.trim());
-        filter.type = { $in: types };
+        // case-insensitive type matching
+        const types = q.type.split(',').map(s => s.trim()).filter(Boolean);
+        filter.type = { $in: types.map(t => new RegExp(`^${escapeRegExp(t)}$`, 'i')) };
       }
       const numericOps = { lt: '$lt', lte: '$lte', gt: '$gt', gte: '$gte' };
       ['atk', 'def', 'level'].forEach(field => {
@@ -72,13 +82,18 @@ connectToMongo().then(() => {
           filter[field] = parseInt(v, 10);
         }
       });
-      if (q.race) filter.race = { $in: q.race.split(',').map(s => s.trim()) };
-      if (q.attribute) filter.attribute = { $in: q.attribute.split(',').map(s => s.trim()) };
+  if (q.race) filter.race = { $in: q.race.split(',').map(s => s.trim()).map(r => new RegExp(`^${escapeRegExp(r)}$`, 'i')) };
+  if (q.attribute) filter.attribute = { $in: q.attribute.split(',').map(s => s.trim()).map(a => new RegExp(`^${escapeRegExp(a)}$`, 'i')) };
       if (q.link) filter.linkval = parseInt(q.link, 10);
       if (q.linkmarker) filter.linkmarkers = { $all: q.linkmarker.split(',').map(s => s.trim().toLowerCase()) };
       if (q.scale) filter.scale = parseInt(q.scale, 10);
       if (q.cardset) addFuzzy('card_sets.set_name', q.cardset);
       if (q.archetype) addFuzzy('archetype', q.archetype);
+
+      // escape regex helper
+      function escapeRegExp(string) {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      }
       if (q.staple) filter.staple = q.staple === 'yes' || q.staple === 'true';
       if (q.has_effect) {
         const v = q.has_effect.toLowerCase();
